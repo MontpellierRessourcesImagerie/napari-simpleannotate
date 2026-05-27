@@ -595,3 +595,29 @@ class BboxQWidget(QWidget):
         for key, value in self.class_counts.items():
             index = items_id_list.index(key)
             self.countListWidget.item(index).setText(str(value))
+
+    def update_list_colors_and_class_count(self):
+        self.class_counts = {}
+        for row in range(self.listWidget.count()):
+            item = self.listWidget.item(row)
+            path = item.text()
+            annotationsPath = os.path.splitext(path)[0] + ".txt"
+            if not os.path.exists(annotationsPath):
+                continue
+            with open(annotationsPath, 'r') as file:
+                lines = file.readlines()
+            if len(lines) == 0:
+                continue
+            for line in lines:
+                class_id = int(line.split()[0])
+                if not class_id in self.class_counts.keys():
+                    self.class_counts[class_id] = 0
+                self.class_counts[class_id] = self.class_counts[class_id] + 1
+            item.setForeground(QBrush(QColorConstants.Green))
+        self.countListWidget.clear()
+        counts = ['0'] * len(self.class_counts)
+        print("counts:", counts)
+        self.countListWidget.addItems(counts)
+        for key, value in self.class_counts.items():
+            self.countListWidget.item(key).setText(str(value))
+
