@@ -1,7 +1,6 @@
 import os
 from functools import partial
 from typing import TYPE_CHECKING
-
 import napari
 import numpy as np
 import skimage.io
@@ -138,7 +137,6 @@ class BboxQWidget(QWidget):
         self.options_path = os.path.join(self.data_folder, "display_options.yaml")
         self.colors = {0: "red", 1: "green", 2: "blue", 3: "cyan", 4: "magenta", 5: "yellow", 6: "black", 7: "white"}
 
-
     def initLayers(self):
         """Initializes the image and shapes layers in the napari viewer."""
         self.viewer.add_image(np.zeros((10, 10)), name="image_layer")
@@ -205,7 +203,6 @@ class BboxQWidget(QWidget):
         classIDs = self.getClassIDs()
         shapes_layer.current_edge_color = self.colors[classIDs[selectedIndex]]
 
-
     def color_clicked(self):
         sender = self.sender()
         row = -1
@@ -226,15 +223,13 @@ class BboxQWidget(QWidget):
         self.saveColors()
         self.updateColors()
 
-
     def saveColors(self):
         path = self.getCurrentDir()
         if not path:
             return
         path = os.path.join(path, "colors.yaml")
-        with open(path, 'w') as file:
+        with open(path, "w") as file:
             yaml.dump(self.colors, file, default_flow_style=False)
-
 
     def show_labels_changed(self, state):
         shapes_layer = self.viewer.layers["bbox_layer"]
@@ -243,9 +238,8 @@ class BboxQWidget(QWidget):
         else:
             shapes_layer.text = None
 
-
     def add_class(self):
-        """Adds the text in the class_textbox to the classlistWidget."""
+        """Adds the text in the class_textbox to the classListWidget."""
         class_name = self.class_textbox.text()
         if class_name:
             exist_class_names = [self.classListWidget.item(i).text() for i in range(self.classListWidget.count())]
@@ -268,7 +262,7 @@ class BboxQWidget(QWidget):
             self.sort_classlist()
             self.addNextColorItem()
             self.class_textbox.clear()
-
+            self.ensure_class_selection()
 
     def addNextColorItem(self):
         index = self.colorListWidget.count()
@@ -285,7 +279,6 @@ class BboxQWidget(QWidget):
         widget.setLayout(widgetLayout)
         self.colorListWidget.addItem(item)
         self.colorListWidget.setItemWidget(item, colorButton)
-
 
     def popup(self, message_type=None):
         if message_type == "None":
@@ -343,9 +336,13 @@ class BboxQWidget(QWidget):
                 self.sort_classlist(renumber=True)
             else:
                 pass
+            self.ensure_class_selection()
 
     def sort_classlist(self, renumber=False):
         items_text = [self.classListWidget.item(i).text() for i in range(self.classListWidget.count())]
+        selected_text = None
+        if self.classListWidget.currentItem():
+            selected_text = self.classListWidget.currentItem().text()
 
         def extract_number(item_text):
             return int(item_text.split(":")[0].strip())
@@ -362,9 +359,22 @@ class BboxQWidget(QWidget):
         self.classListWidget.clear()
         for item_text in sorted_items_text:
             self.classListWidget.addItem(item_text)
+        if selected_text:
+            for match in self.classListWidget.findItems(selected_text, Qt.MatchExactly):
+                self.classListWidget.setCurrentItem(match)
+
+    def ensure_class_selection(self):
+        """Keeps a class selected whenever the classlist is non-empty, and syncs it
+        to the shapes layer's default class so newly drawn boxes always get a valid class."""
+        if self.classListWidget.count() == 0:
+            return
+        if self.classListWidget.currentItem() is None:
+            self.classListWidget.setCurrentRow(0)
+        shapes_layer = self.viewer.layers["bbox_layer"]
+        shapes_layer.feature_defaults["class"] = self.classListWidget.currentItem().text()
 
     def del_class(self):
-        """Deletes the selected class from the classlistWidget and the features dictionary."""
+        """Deletes the selected class from the classListWidget and the features dictionary."""
         if not self.classListWidget.selectedItems():
             return
         self.popup("renumbering")
@@ -407,6 +417,7 @@ class BboxQWidget(QWidget):
                 self.countListWidget.addItem(f"0")
                 self.addNextColorItem()
             self.sort_classlist()
+            self.ensure_class_selection()
         self.update_list_colors_and_class_count()
 
     def showSaveChangesDialog(self):
@@ -511,7 +522,7 @@ class BboxQWidget(QWidget):
                 self.sort_classlist()
                 shapes_layer.refresh_text()
                 rgbfColors = [list(QColor(c).getRgbF()) for c in colors]
-                shapes_layer.edge_color = rgbfColors # setting the property also refreshes the display
+                shapes_layer.edge_color = rgbfColors  # setting the property also refreshes the display
         else:
             shapes_layer = self.viewer.layers["bbox_layer"]
             shapes_layer.data = []
@@ -520,6 +531,7 @@ class BboxQWidget(QWidget):
             item = self.classListWidget.item(row)
             if item.text() == current_class:
                 self.classListWidget.setCurrentItem(item)
+        self.ensure_class_selection()
         self.viewer.reset_view()
         self.dirty = False
         self.update_list_colors_and_class_count()
@@ -550,7 +562,6 @@ class BboxQWidget(QWidget):
         rgbfColors = [list(QColor(c).getRgbF()) for c in newColors]
         shapes_layer.edge_color = rgbfColors  # setting the property also refreshes the display
 
-
     def saveAnnotationsFor(self, image_file):
         """Saves the bounding box annotations in the shapes layer in YOLO format."""
         annotation_file = os.path.splitext(image_file)[0] + ".txt"
@@ -561,6 +572,17 @@ class BboxQWidget(QWidget):
         else:
             image_height, image_width = image_layer.data.shape[-2:]
         shapes_data = shapes_layer.data
+
+        # Boxes drawn while no class was selected have no class feature (NaN),
+        # which cannot be exported to YOLO format.
+        class_values = shapes_layer.features["class"]
+        unassigned = [i for i in range(len(shapes_data)) if not isinstance(class_values.iloc[i], str)]
+        if unassigned:
+            napari.utils.notifications.show_warning(
+                f"Not saved: {len(unassigned)} bounding box(es) have no class assigned. "
+                "Select the box(es), then click a class in the class list to assign one."
+            )
+            return
 
         annotations = []
 
@@ -589,7 +611,7 @@ class BboxQWidget(QWidget):
             # Append the annotation to the list
             # class_name = shapes_layer.features["class"][i].split(":")[1].strip()
             # class_id = list(items_dict.keys())[list(items_dict.values()).index(class_name)]
-            class_id = shapes_layer.features["class"][i].split(":")[0].strip()
+            class_id = class_values.iloc[i].split(":")[0].strip()
             annotations.append(f"{class_id} {x_center} {y_center} {width} {height}")
 
         # Join all the annotations into a string
@@ -682,7 +704,6 @@ class BboxQWidget(QWidget):
             item = self.colorListWidget.item(index)
             widget = self.colorListWidget.itemWidget(item)
             widget.setStyleSheet("background-color: " + self.colors[key] + ";")
-
 
     def getClassIDs(self):
         items_text = [self.classListWidget.item(i).text() for i in range(self.classListWidget.count())]
