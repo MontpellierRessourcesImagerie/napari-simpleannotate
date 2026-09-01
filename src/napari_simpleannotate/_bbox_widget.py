@@ -64,7 +64,7 @@ class BboxQWidget(QWidget):
         self.keep_contrast_checkbox = QCheckBox("Keep Contrast", self)
         self.show_labels_checkbox = QCheckBox("Show Labels", self)
         self.show_labels_checkbox.setChecked(True)
-        self.show_labels_checkbox.checkStateChanged.connect(self.show_labels_changed)
+        self.show_labels_checkbox.stateChanged.connect(self.show_labels_changed)
         checkboxesLayout.addWidget(self.keep_contrast_checkbox)
         checkboxesLayout.addWidget(self.show_labels_checkbox)
 
@@ -135,7 +135,8 @@ class BboxQWidget(QWidget):
         self.data_folder = platformdirs.user_data_dir("simple_annotate")
         os.makedirs(self.data_folder, exist_ok=True)
         self.options_path = os.path.join(self.data_folder, "display_options.yaml")
-        self.colors = {0: "red", 1: "green", 2: "blue", 3: "cyan", 4: "magenta", 5: "yellow", 6: "black", 7: "white"}
+        self.defaultColors = ["red", "green", "blue", "cyan", "magenta", "yellow", "black", "white"]
+        self.colors = {}
 
     def initLayers(self):
         """Initializes the image and shapes layers in the napari viewer."""
@@ -200,12 +201,12 @@ class BboxQWidget(QWidget):
             shapes_layer.features.loc[idxs, "class"] = class_name
             shapes_layer.refresh_text()
             self.dirty = True
-        classIDs = self.getClassIDs()
-        shapes_layer.current_edge_color = self.colors[classIDs[selectedIndex]]
+        shapes_layer.current_edge_color = self.getColorOfClassAt(selectedIndex)
 
     def color_clicked(self):
         sender = self.sender()
         row = -1
+        widget = None
         for index in range(self.colorListWidget.count()):
             item = self.colorListWidget.item(index)
             widget = self.colorListWidget.itemWidget(item)
@@ -214,14 +215,15 @@ class BboxQWidget(QWidget):
                 break
         if row < 0:
             return
-        color = list(self.colors.values())[row]
+        color = self.getClassIDAt(row)
         newColor = QColorDialog.getColor(initial=QColor(color), options=QColorDialog.ShowAlphaChannel)
         if not newColor.isValid():
             return
-        self.colors[row] = newColor.name()
-        widget.setStyleSheet("background-color: " + newColor.name() + ";")
-        self.saveColors()
-        self.updateColors()
+        self.setColorOfClassAt(row, newColor.name())
+        if widget:
+            widget.setStyleSheet("background-color: " + newColor.name() + ";")
+            self.saveColors()
+            self.updateColors()
 
     def saveColors(self):
         path = self.getCurrentDir()
@@ -266,7 +268,8 @@ class BboxQWidget(QWidget):
 
     def addNextColorItem(self):
         index = self.colorListWidget.count()
-        color = self.colors[index % len(self.colors)]
+        color = self.defaultColors[index % len(self.defaultColors)]
+        self.colors[self.current_class_number] = color
         item = QListWidgetItem()
         widget = QWidget()
         colorButton = QPushButton()
@@ -709,3 +712,19 @@ class BboxQWidget(QWidget):
         items_text = [self.classListWidget.item(i).text() for i in range(self.classListWidget.count())]
         items_id_list = [int(item_text.split(":")[0].strip()) for item_text in items_text]
         return items_id_list
+
+    def getClassIDAt(self, index):
+        ids = self.getClassIDs()
+        return ids[index]
+
+    def getColorOfClassAt(self, index):
+        return self.colors[self.getClassIDAt(index)]
+
+    def setColorOfClassAt(self, index, color):
+        self.colors[self.getClassIDAt(index)] = color
+
+    def getColorOfClass(self, classID):
+        return self.colors[classID]
+
+    def setColorOfClass(self, classID, color):
+        self.colors[classID] = color
